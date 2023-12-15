@@ -1,0 +1,1051 @@
+---
+title: "Trabajo individual de FAEDE+AEDM"
+author: "Nora Albaladejo Riad"
+date: "2023-12-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Paquetes empleados
+```{r message = FALSE, warning = FALSE}
+# Facilita la lectura de archivos de datos, como CSV, TSV y archivos de ancho fijo.
+library(readr) 
+
+# Herramienta poderosa para la creación de gráficos y visualizaciones personalizadas.
+library(ggplot2) 
+
+# Ofrece funciones para la visualización de datos.
+library(gplots) 
+
+# Ayuda a estructurar los datos de manera ordenada.
+library(tidyr) 
+
+# Permite combinar varios gráficos de 'grid' en una única cuadrícula.
+library(gridExtra) 
+
+# Proporciona herramientas para el análisis y diagnóstico de regresión.
+library(car) 
+
+# Ofrece funciones para manipular, transformar y filtrar datos de manera eficiente.
+library(dplyr) 
+
+# Facilita la creación de gráficos y tablas para publicación, compatible con ggplot2.
+library(ggpubr) 
+
+# Proporciona métodos y funciones para análisis de clustering.
+library(cluster) 
+
+# Colección de paquetes, incluyendo dplyr, ggplot2, y otros, que facilitan el análisis de datos.
+library(tidyverse) 
+
+# Permite visualizar matrices de correlación de manera clara y efectiva.
+library(corrplot) 
+
+# Herramientas para análisis de datos multivariados y exploratorios.
+library(FactoMineR) 
+
+# Ayuda en la visualización y análisis de métodos factoriales (PCA, CA, etc.).
+library(factoextra) 
+
+# Proporciona herramientas para el análisis de datos espaciales.
+library(REdaS) 
+
+# Ofrece funciones para análisis psicométricos y estadísticas.
+library(psych)
+
+# Facilita la visualización de matrices de correlación usando ggplot2.
+library(ggcorrplot) 
+
+# Proporciona gráficos de dispersión con puntos agrupados para evitar la superposición.
+library(ggbeeswarm)
+
+# Poporciona un conjunto de temas y estilos adicionales para gráficos en R
+library(hrbrthemes)
+
+```
+
+## Cargamos los datos y los ordenamos para el trabajo
+
+```{r message = FALSE, warning = FALSE}
+# Cargar el archivo CSV usando read_csv() de readr
+datos <- read_csv("pone.0187371.s002.csv")
+```
+
+```{r message = FALSE, warning = FALSE}
+# Seleccionar las columnas 142 a 152 y la columna 201
+datos_genes <- datos[, c(142:152, 201)]
+
+datos_genes <- datos_genes[,order(apply(datos_genes,2,var), decreasing=T)]
+
+# Como los genes tienen nombres que empiezan con números, me estan dando problemas en los siguientes apartados, asique los voy a convertir en strings.
+
+nombres_viejos <- names(datos_genes)
+nombres_nuevos <- make.names(nombres_viejos, unique = TRUE)
+
+names(datos_genes) <- nombres_nuevos
+
+# Normalizo los datos de expresión génica, aqune he trabajado con los datos normalizados y sin normalizar y on ha cambiado nada.
+
+datos_norm <- datos_genes %>%
+  mutate_at(vars(-12), scale) %>%
+  mutate(Class = as.factor(Class))
+
+# Además vamos a crear una nueva columna en la que 0 sea Control y Autism sea 1.
+
+datos_reorg <- datos_norm %>%
+  mutate(Y = ifelse(Class == "Control", 0, ifelse(Class == "Autism", 1, NA))) %>%
+  select(Y,everything(),Class)
+
+```
+
+## Ejercicio 1. Estudio del conjunto de genes significativos
+
+### a. Ordena las variables de acuerdo a su información. Obtén los estadísticos descriptivos y representa la expresión de los once genes, para cada grupo del factor Class.
+
+
+```{r message = FALSE, warning = FALSE}
+# Reorganizar los datos para tener una columna para la expresión y otra para la clase
+data_melted <- gather(datos_genes, key = "Gene", 
+                      value = "Expression", -Class)
+
+data_melted_norm <- gather(datos_reorg[2:13], key = "Gene", 
+                      value = "Expression", -Class)
+
+```
+
+
+```{r message = FALSE, warning = FALSE}
+
+# Estadísticos por clase para cada gen en una tabla
+stats_por_clase <- aggregate(. ~ Class, data = datos_genes, 
+                             FUN = function(x) summary(x))
+
+```
+
+
+```{r message = FALSE, warning = FALSE}
+# GRÁFICOS DE EXPRESIÓN GÉNICA
+ggplot(data_melted, aes(x = Class, y = Expression, fill = Class)) +
+  geom_boxplot(width = 0.5, position = position_dodge(width = 0.75)) +
+  facet_wrap(~Gene, scales = "free_y", ncol = 4) +
+  labs(title = "Gene expression", y = "Relative gene expression") +
+  scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+  theme_minimal()
+```
+
+Las principales hipótesis que sacamos de este gráfico son: 
+
+  a) Los genes con un patrón de expresión similar en los dos grupos (autismo y control) pueden no estar asociados con el autismo.
+    
+  b) Los genes con un patrón de expresión diferente en los dos grupos (por ejemplo, los niveles de expresión más altos en el grupo de autismo) pueden estar asociados con el autismo.
+    
+  c) Los genes con un patrón de expresión más variable en el grupo de autismo (por ejemplo, más valores atípicos) pueden estar asociados con el autismo.
+
+
+```{r message = FALSE, warning = FALSE}
+
+ggplot(data_melted, aes(x = Class, y = Expression, fill = Class)) +
+  geom_violin(trim = FALSE) +
+  geom_beeswarm(cex = 3, size = 0.5, alpha = 0.5, color = "black") +
+  facet_wrap(~Gene, scales = "free_y", ncol = 4) +
+  labs(title = "Gene expression", y = "Relative gene expression") +
+  scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+  theme_minimal()
+
+```
+
+En esta gráfica además podemos estudiar la distribución de las muestras para cada gen y cada grupo.Así observamos que para algunos genes como X1556228_a_at, x201056_at y X201773_at las muestras están más ampliamente distribuidas en el grupo Control que en el Autismo, y que en los genes X211500_at, x227738_s_at, X228415_at, X230978_at y X233734_s_at ocurre lo contrario, teniendo una distribución mayor en el grupo Autista.
+
+```{r}
+# Creo también una tabla sin outliers
+
+outliers <- function(x) {
+
+  Q1 <- quantile(x, probs=.25)
+  Q3 <- quantile(x, probs=.75)
+  iqr = Q3-Q1
+
+ upper_limit = Q3 + (iqr*1.5)
+ lower_limit = Q1 - (iqr*1.5)
+
+ x > upper_limit | x < lower_limit
+}
+
+remove_outliers <- function(df, cols = names(df)) {
+  for (col in cols) {
+    df <- df[!outliers(df[[col]]),]
+  }
+  df
+}
+
+df_limpia <- remove_outliers(datos_genes, c('X1556228_a_at', 'X201773_at', 'X211500_at', 'X225915_at', 'X228415_at', 'X230978_at', 'X233734_s_at','X238476_at' ))
+
+data_melted_limpio <- gather(df_limpia, key = "Gene", 
+                      value = "Expression", -Class)
+
+box_plots_limpio <- ggplot(data_melted_limpio, aes(x = Class, y = Expression, fill = Class)) +
+  geom_boxplot(width = 0.5, position = position_dodge(width = 0.75)) +
+  facet_wrap(~Gene, scales = "free_y", ncol = 4) +
+  labs(title = "Gene expression", y = "Relative gene expression") +
+  scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+  theme_minimal()
+
+box_plots_limpio
+
+datos_norm_limpio <- df_limpia %>%
+  mutate_at(vars(-12), scale) %>%
+  mutate(Class = as.factor(Class))
+
+# Además vamos a crear una nueva columna en la que 0 sea Control y Autism sea 1.
+
+datos_reorg_limpio <- datos_norm %>%
+  mutate(Y = ifelse(Class == "Control", 0, ifelse(Class == "Autism", 1, NA))) %>%
+  select(Y,everything(),Class)
+
+```
+
+Hice todo el boletín con los datos en bruto y con una tabla sin outliers, y no cambió ningún resultado.
+
+### b.Estudia la normalidad de los valores de expresión de cada gen a través de los gráficos cuantil-cuantil y de los contrastes de normalidad adecuados.
+
+
+Como tenemos más de 50 muestras, haremos un Test de Kolmogorov-Simirnov como prueba no paramétrica de contraste de normalidad de las muestras, haciendo dos test separados, uno para Control y otro para Autismo, comparándolo con una distribución normal. Asumiremos un coeficiente de confianza del 5% y que las diferencias entre la distribución normal y la de la muestra es demasiado diferente cuando D >= 0.2. 
+
+#### Gen X227738_s_at
+```{r message = FALSE, warning = FALSE}
+
+gen <- nombres_nuevos[6]
+
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+
+# Kolmogorov-Smirnov test para Control y Autism 
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+Para el gen X227738_s_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, no saliendose de los límites de confianza, pero dejando de ajustarse en los extremos a la línea, tanto para el grupo Control como Autismo. Además hemos realizado un test de Kolmogorov-Simirnov, y se ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.065 y *p-valor* = 0.945; Autismo D = 0.058 y *p-valor* = 0.967).
+
+
+#### Gen X211500_at
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[9]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+Para el gen X211500_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, no saliendose de los límites de confianza, pero dejando de ajustarse en los extremos a la línea para el grupo Autismo. Las muestras del grupo control no se ajustan tan bien a la recta y se salen de los límites de confianza en los extremos.
+
+Aun así, el test de KS ha demostrado queno podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.115 y *p-valor* = 0.411; Autismo D = 0.0637 y *p-valor* = 0.938).
+
+#### Gen X238476_at
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[2]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+Analizando el gen X2238476_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, no saliendose de los límites de confianza, pero dejando de ajustarse en los extremos a la línea para el grupo Control. Las muestras del grupo Autismo se ajustan tan bien a la recta pero se salen de los límites de confianza en los extremos.
+
+Aun así, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.0669 y *p-valor* = 0.938; Autismo D = 0.093 y *p-valor* = 0.621).
+
+#### Gen X228415_at
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[4]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+Cuando estudiamos el gen X228415_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, no saliendose de los límites de confianza, pero dejando de ajustarse en los extremos a la línea para el grupo Control. Las muestras del grupo Autismo no se ajustan tan bien a la recta y se salen de los límites de confianza en los extremos.
+
+Aun así, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.054 y *p-valor* = 0.991; Autismo D = 0.088 y *p-valor* = 0.65).
+
+#### Gen X217597_x_at
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[7]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+Cuando estudiamos el gen X217597_x_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, no saliendose de los límites de confianza, pero dejando de ajustarse en los extremos a la línea para el grupo Control. Las muestras del grupo Autismo no se ajustan tan bien a la recta y se salen de los límites de confianza en los extremos.
+
+Aun así, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.09 y *p-valor* = 0.991; Autismo D = 0.07 y *p-valor* = 0.65).
+
+#### Gen X1556228_a_at
+
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[5]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+El gen X1556228_a_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, excepto en los extremos, donde se salen de los limites de confianza en ambos grupos por el extremo derecho.
+
+Aun así, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.100 y *p-valor* = 0.549; Autismo D = 0.09 y *p-valor* = 0.548).
+
+#### Gen X233734_s_at
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[3]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+El gen X233734_s_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, excepto en los extremos. Las muestras del grupo Autismo se ajustan mejor a la recta que las del grupo Control. Sin embargo, los valores de expresión más altos en el grupo Autismo se salen de los límites de confianza.
+
+Aun así, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.146 y *p-valor* = 0.143; Autismo D = 0.09 y *p-valor* = 0.634).
+
+#### Gen X230978_at
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[11]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+El gen X230978_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, excepto en los extremos, que no parece que vayan a volver a ajustarse a la recta. Las muestras del grupo Autismo se ajustan mejor a la recta que las del grupo Control. Sin embargo, los valores de expresión más bajos en el grupo Autismo se salen de los límites de confianza.
+
+Aun así, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.1 y *p-valor* = 0.557; Autismo D = 0.107 y *p-valor* = 0.413).
+
+#### Gen X225915_at
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[10]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+El gen X22591_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, excepto en los extremos. Las muestras del grupo Autismo se ajustan mejor a la recta que las del grupo Control. Sin embargo, algunos valores de expresión más altos en el grupo Autismo se salen de los límites de confianza.
+
+Aun así, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.098 y *p-valor* = 0.584; Autismo D = 0.087 y *p-valor* = 0.665).
+
+#### Gen X201056_at
+
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[8]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+El gen X201056_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, excepto en los extremos, que no parece que vayan a volver a ajustarse a la recta, aunque para ningún gruo se salen de los límites de confianza. Las muestras del grupo Control se ajustan mejor a la recta que las del grupo Autismo. 
+
+Aun así, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.078 y *p-valor* = 0.837; Autismo D = 0.077 y *p-valor* = 0.806).
+
+#### Gen X201773_at
+
+```{r message = FALSE, warning = FALSE}
+gen <- nombres_nuevos[1]
+
+ggqqplot(datos_reorg, x = gen, color = "Class", ggtheme = theme_pubclean()) +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+    scale_fill_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2"))+
+  labs(title = paste("Q-Q Plot for", gen), color = "Group") +
+  theme(legend.position = "bottom") 
+
+# Kolmogorov-Smirnov test para Control y Autism utilizando el primer gen
+ks_test_control <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Control"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Control"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Control"]))
+
+ks_test_autism <- ks.test(datos_reorg[[gen]][datos_reorg$Class == "Autism"], pnorm, mean(datos_reorg[[gen]][datos_reorg$Class == "Autism"]), sd(datos_reorg[[gen]][datos_reorg$Class == "Autism"]))
+
+# Mostrar los resultados de los tests
+print(paste("Kolmogorov-Smirnov Test for Control -", gen, ": D =", ks_test_control$statistic, ", p-value =", ks_test_control$p.value))
+print(paste("Kolmogorov-Smirnov Test for Autism -", gen, ": D =", ks_test_autism$statistic, ", p-value =", ks_test_autism$p.value))
+```
+
+El gen X201773_at observamos en la grafica Q-Q que por lo general las muestras siguen una distribución normal, excepto en los extremos, aunque para ningún grupo se salen de los límites de confianza. 
+
+Además, el test de KS ha demostrado que no podemos afirmar de manera concluyente que los datos de la muestra no provienen de una distribución normal para ningún grupo (Control D = 0.090 y *p-valor* = 0.689; Autismo D = 0.073 y *p-valor* = 0.847).
+
+
+```{r message = FALSE, warning = FALSE}
+
+# Curvas de distribución
+ggplot(data_melted_norm, aes(x = Expression, color = Class)) +
+  geom_density(position = 'identity', alpha = 0.5) +
+  facet_wrap(~Gene, scales = "free_y", ncol = 4) +
+  labs(title = "Gene expression", y = "Relative gene expression") +
+  scale_color_manual(values = c("Control" = "grey", "Autism" = "darkolivegreen2")) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+Atendiendo a la gráfica anterior en al que se representa la curva de distribución de densidad de la expresión génica para cada gen y cada grupo, podemos asumir que se asemejen a una distribución normal, ya que hay que tener en cuenta que los datos biológicos suelen estar sesgados por una serie de factores, como la variabilidad intraindividual, la variabilidad interindividual y la presencia de genes diferencialmente expresados.
+
+En general, no se recomienda realizar una prueba t de Student si los datos no se ajustan bien a una distribución normal. Si el test KS no muestra una significancia estadística, entonces es más probable que la distribución de los datos sea normal. Así, en este caso, podría ser razonable realizar una prueba t de Student.
+
+### c. Contrasta la igualdad de medias de los valores de expresión para cada gen entre individuos autistas y de control. Interpreta los resultados. Explica tu consideración sobre la adecuación de la prueba paramétrica aplicada. Indica justificadamente qué genes se expresan diferencialmente.
+
+Primero evaluaremos, para cada gen, si las varianzas de los grupos son iguales, y para ello haremos el test F de Snedecor para dos muestras independientes. Posteriormente realizaremos un t de Student para dos muestras independientes con el fin de contrastar las medias de expresión de cada grupo para cada gen.
+
+#### Gen X227738_s_at
+```{r message = FALSE, warning = FALSE}
+var.test(datos_reorg$X227738_s_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X227738_s_at~ datos_reorg$Y, var.equal = T)
+```
+
+En este caso, el *p-valor* es 0.6769, que es mayor que 0.05. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0005589, que es menor que 0,05. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.
+
+En concreto, los resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X227738_s_at más altos que los pacientes sin autismo.
+
+#### Gen X211500_at
+```{r}
+var.test(datos_reorg$X211500_at ~ datos_reorg$Y)
+
+t.test(datos_reorg$X211500_at ~ datos_reorg$Y, var.equal = T)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas  el *p-valor* es 0.1036. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0006341. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.
+
+Concretamente, estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X211500_at más altos que los pacientes sin autismo.
+
+
+#### Gen X238476_at
+```{r}
+var.test(datos_reorg$X238476_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X238476_at~ datos_reorg$Y, var.equal = T)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.5216. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0005988. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.  
+
+Concretamente, estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X223846_at más bajos que los pacientes sin autismo.
+
+#### Gen X228415_at
+```{r}
+var.test(datos_reorg$X228415_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X228415_at~ datos_reorg$Y, var.equal = T)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.5248. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0006221. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.  
+
+Estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X228415_at más bajos que los pacientes sin autismo.
+
+#### Gen X217597_x_at
+```{r}
+var.test(datos_reorg$X217597_x_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X217597_x_at~ datos_reorg$Y, var.equal = T)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.4768. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0007134. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.  
+
+Estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X217597_x_at más altos que los pacientes sin autismo.
+
+#### Gen X1556228_a_at
+```{r}
+var.test(datos_reorg$X1556228_a_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X1556228_a_at~ datos_reorg$Y, var.equal = T)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.06584. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0005035. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes. 
+
+Estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X1556228_a_at más bajos que los pacientes sin autismo.
+
+#### Gen X233734_s_at
+```{r}
+var.test(datos_reorg$X233734_s_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X233734_s_at~ datos_reorg$Y, var.equal = F)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.03053. Esto significa que rechazamos la hipótesis nula y concluimos que las varianzas de los dos grupos son diferentes.
+
+Atendiendo al resultado anterior, cambiamos las opciones del código para el test T de Student, y lo hacemos para muestras con varianzas diferentes. Así el *p-valor* es 0.000728, lo que implica que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.  
+
+Estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X233734_s_at más altos que los pacientes sin autismo.
+
+#### Gen X230978_at
+```{r}
+var.test(datos_reorg$X230978_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X230978_at~ datos_reorg$Y, var.equal = T)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.1179. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0004895. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.  
+
+Estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X230978_at más altos que los pacientes sin autismo.
+
+#### Gen X225915_at
+```{r}
+var.test(datos_reorg$X225915_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X225915_at~ datos_reorg$Y, var.equal = T)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.3929. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0004711. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.  
+
+Estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X225915_at más bajos que los pacientes sin autismo.
+
+#### Gen X201056_at
+```{r}
+var.test(datos_reorg$X201056_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X201056_at~ datos_reorg$Y, var.equal = T)
+
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.571. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0005836. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.  
+
+Estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X201056_at más bajos que los pacientes sin autismo.
+
+#### Gen X201773_at
+```{r}
+var.test(datos_reorg$X201773_at~ datos_reorg$Y)
+
+t.test(datos_reorg$X201773_at~ datos_reorg$Y, var.equal = T)
+```
+
+En la prueba de análisis de homogeneidad de las varianzas el *p-valor* es 0.3941. Esto significa que no tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las varianzas de los dos grupos son diferentes. El intervalo de confianza del 95 % incluye el valor 1, lo que respalda aún más la conclusión de que las varianzas no son diferentes. 
+
+En la prueba de contraste de medias el *p-valor* es 0.0005825. Esto significa que tenemos suficiente evidencia para rechazar la hipótesis nula y concluir que las medias de los dos grupos son diferentes. El intervalo de confianza del 95 % no incluye el valor 0, lo que respalda aún más la conclusión de que las medias son diferentes.  
+
+Estos resultados parecen indicar que los pacientes con autismo tienen niveles de expresión del gen X201773_at más bajos que los pacientes sin autismo.
+
+
+## Ejercicio 2. Realiza un Análisis de Componentes Principales. Se sugiere el estudio de idoneidad del ACP, variabilidad de cada una de las componentes principales, determinación del número adecuado de componentes principales, la expresión de las componentes extraídas y su interpretación.
+
+El primer paso es realizar un estudio de idoneidad del PCA para evaluar si el análisis es adecuado para los datos. Para ello, podemos realizar las siguientes pruebas:
+
+- __Test de Esfericidad de Barlett__: Este test nos indica si los datos son adecuados para un análisis de componentes principales. 
+- __Test de Kaiser-Meyer-Olkin (KMO)__: Este test nos proporciona una medida de la adecuación de los datos para un análisis de componentes principales.
+
+Primero hacemos un análisis de correlación de las muestras.
+
+```{r message = FALSE, warning = FALSE}
+
+
+# Calculamos las correlaciones sin coger la columna Y ni Class
+
+a<-datos_reorg[,2:12]
+matrix_cor <- round(cor(a),2)
+matrix_cor
+ggcorrplot(matrix_cor)
+
+```
+
+La matriz muestra los valores de **correlación de Pearson** entre los 11 genes. Los valores de correlación oscilan entre -1 y 1, donde:
+
+  - Un valor de 1 indica una correlación positiva perfecta, lo que significa que las dos variables aumentan o disminuyen juntas.
+  
+  - Un valor de -1 indica una correlación negativa perfecta, lo que significa que las dos variables aumentan o disminuyen en direcciones opuestas.
+    
+  - Un valor de 0 indica que no hay correlación entre las dos variables.
+
+
+ El **test de Bartlett** es una prueba de esfericidad que se utiliza para comprobar si los datos son adecuados para un análisis de componentes principales. Si el *p-valor* < 0.05, rechazamos la hipotesis nula y concluimos que los datos no son esféricos, lo que significa que las varianzas de las variables son diferentes.
+ 
+ 
+```{r message = FALSE, warning = FALSE}
+## Test de Barlett
+
+n=nrow(datos_reorg)
+cortest.bartlett(cor(a), n)
+
+```
+
+```{r message = FALSE, warning = FALSE}
+
+bart_spher(a)
+```
+ 
+ En este caso, el *p-valor* = 1.009201e-85. Esto significa que las varianzas de las variables son diferentes. Esto puede ser debido a que, una vez normalizados los datos, las variables están correlacionadas. Hemos observado en las matriz de correlación que hay muchas variables correlacionadas.
+
+La prueba de **Kaiser-Meyer-Olkin (KMO)** es otra prueba de idoneidad del análisis de componentes principales. Un valor de KMO superior a 0.5 indica que los datos son adecuados para el análisis.
+
+```{r message = FALSE, warning = FALSE}
+KMOS(a)
+```
+ 
+ En este caso, el valor de KMO (MSA) es 0.79, que es superior a 0.5. Esto significa que los datos son adecuados para el análisis de componentes principales.
+
+En base a los resultados de los tests de esfericidad y la prueba de KMO, podemos concluir que los datos son adecuados para un análisis de componentes principales. Sin embargo, es importante tener en cuenta que el test de Bartlett indica que los datos no son esféricos. Esto significa que las varianzas de las variables son diferentes, lo que puede afectar a los resultados del análisis.
+
+A continuación hacemos el análisis de componentes principales de las muestras. El porcentaje mínimo para representar a la población no está fijado, pero retener un porcentaje sustancial de la varianza total, como el 70-80% o más, suele ser una guía común para garantizar que los componentes principales capturan las características fundamentales de los datos.
+
+```{r message = FALSE, warning = FALSE}
+
+# Calculamos las componentes principales y las representamos. Ya tengo los datos normalizados, asique pongo scale.unit=F
+
+a.pca = PCA(a, scale.unit=F, ncp=20, graph=T)
+
+percentages <- a.pca$svd$vs^2 / sum(a.pca$svd$vs^2)
+percentages
+
+```
+
+
+```{r message = FALSE, warning = FALSE}
+fviz_screeplot(a.pca, addlabels = TRUE, ylim = c(0,60))
+
+```
+
+Así observamos que el Dim1 y Dim2 representan el 54 % de la población. Este porcentaje es muy bajo. Atendiendo a nuestros resultados, lo ideal sería trabajar con los 4 primeros componentes principales, que representan el 72 % de la población, o con los 6 primeros componentes principales que representan el 85 % de la información.
+ 
+Con el estudio de la contribución de cada variable podemos determinar cuánto está representada cada variable en un componente dado. El valor de Cos2 para cada variable indica la proporción de varianza de la variable que se explica por el componente principal. 
+
+
+```{r}
+
+corrplot(a.pca$var$cos2, is.corr=FALSE)
+```
+
+Atendiendo a la gráfica anterior podemos observar que la mayoría de los genes están representados en el componente principal 1 (Dim.1) muy intensamente.  En el componente principal 2 (Dim.2) están representados principalmente los genes X238476_at y X228415_at. En el tercero (Dim.3) está representado el gen X1556228_a_at y en el cuarto (Dim.4) el gen X201056_at. En el quinto (Dim.5) y sexto (Dim.6) componente principal los genes estan muy poco representados. 
+
+```{r}
+## Esto es para calcular los 6 componentes principales primeros porque agrupan el 85% de las muestras.
+
+a.comp=a.pca$ind$coord[,1:6]
+```
+
+
+## 3. Representa conjuntamente las expresiones génicas (variables) y los individuos de la muestra (observaciones). Interpreta la nube de puntos.
+
+
+```{r message = FALSE, warning = FALSE}
+
+
+grupos <- as.factor(datos_reorg$Class)
+
+fviz_pca_biplot(a.pca,
+                axes = c(1,2), # Aquí digo los componentes que quiero
+                col.ind = grupos,  # Color por grupos
+                palette = c("darkolivegreen2", "grey"),
+                label = "var",
+                col.var = "black",
+                addEllipses = TRUE,  # Agregar elipses de concentración
+                legend.title = "Groups",
+                repel = TRUE)
+
+```
+
+La gráfica tiene dos ejes, el eje x representa el primer componente principal (Dim1) y el eje y representa el segundo componente principal (Dim2). Los puntos en la gráfica representan las observaciones del conjunto de datos, y los colores de los puntos representan la clase a la que pertenece cada observación, en rosa pacientes Autistas y en verde Control. Esta gráfica sugiere que los dos grupos tienen diferentes perfiles genéticos.
+
+Se puede obtener más información sobre los dos grupos observando la dirección de los vectores de los componentes principales, qie se corresponden con los diferentes genes. El vector Dim1 apunta hacia la parte superior derecha de la gráfica, lo que indica que este componente principal está asociado con genes que están expresados en niveles más altos en las muestras de pacientes con autismo. El vector Dim2 apunta hacia la parte superior izquierda de la gráfica, lo que indica que este componente principal está asociado con genes que están expresados en niveles más altos en las muestras de pacientes control.
+
+En general, esta gráfica proporciona información sobre la estructura genética de los dos grupos. Los resultados sugieren que los dos grupos tienen diferentes perfiles genéticos, y que estos perfiles están asociados con diferentes niveles de expresión de genes.
+
+Hay algunas observaciones que se encuentran en la zona intermedia de la gráfica. Estas observaciones podrían pertenecer a un grupo intermedio, o podrían ser observaciones que no son representativas de ningún grupo en particular.
+
+## 4. Determinación del número óptimo de conglomerados o clases
+
+```{r}
+
+# Hacemos la matriz de distancia Euclidiana con la que vamos a trabajar
+dist.a <- dist(a.comp)
+```
+
+
+#### a. Realiza un análisis jerárquico de clasificación no supervisado y encuentra la estrategia de enlace óptima. Obtén y comenta el correspondiente dendrograma. Incluye distintas estrategias de enlace, la comparación y la justificación de la elección.
+
+**Más cercanos**
+
+```{r}
+a.single <- hclust(dist.a, method="single")
+par(mfrow=c(1,2))
+plot (a.single, ylab="distancia", cex=0.6)
+plot(a.single, ylab="dist", hang=-1, cex=0.6)
+```
+
+
+**Average**
+
+```{r}
+a.media <- hclust(dist.a, method="average")
+par(mfrow=c(1,2))
+plot (a.media, ylab="distancia", cex=0.6)
+plot(a.media, ylab="dist", hang=-1, cex=0.6)
+```
+
+
+**Complete**
+
+```{r}
+a.complete <- hclust(dist.a, method="complete")
+par(mfrow=c(1,2))
+plot (a.complete, ylab="distancia", cex=0.6)
+plot(a.complete, ylab="dist", hang=-1, cex=0.6)
+```
+
+**Centroide**
+
+```{r}
+a.centroid <- hclust(dist.a, method="centroid")
+par(mfrow=c(1,2))
+plot (a.centroid, ylab="distancia", cex=0.6)
+plot(a.centroid, ylab="dist", hang=-1, cex=0.6)
+```
+
+**Ward.D**
+
+```{r}
+a.ward <- hclust(dist.a, method="ward.D")
+par(mfrow=c(1,2))
+plot (a.ward, ylab="distancia", cex=0.6)
+plot(a.ward, ylab="dist", hang=-1, cex=0.6)
+```
+
+Ahora vemos cual es el mejor de todos:
+
+```{r}
+sing=cor(dist.a,cophenetic(a.single))
+comp=cor(dist.a,cophenetic(a.complete))
+cent=cor(dist.a,cophenetic(a.centroid))
+ave=cor(dist.a,cophenetic(a.media))
+ward=cor(dist.a,cophenetic(a.ward))
+best=data.frame(sing,comp,cent,ave,ward)
+round(best,2)
+```
+
+Los mejores resultados son con Average, con un 0’62. Esta información lo vamos a usar para sacar el número de clusters óptimo.
+
+#### b. Determina el número de conglomerados adecuado.
+
+```{r}
+hcpc.a= HCPC(as.data.frame(a.comp),nb.clust=-1,method="average")
+hcpc.b= HCPC(a.pca, nb.clust=-1,method="average")
+
+```
+
+Atendiendo a los resultados, nuestros datos se clasifican en 4 clusters cuando trabajamos con todos los componentes principales, y en 3 cuando trabajamos solo con los 6 primeros componentes principales.
+
+#### c. Obtén el número de individuos y de qué grupo están incluidos en cada uno de los conglomerados obtenidos.
+
+```{r}
+# Cuando trabajamos con todos los datos
+
+kmed_all <- pam(dist.a, k=4, diss=T)
+plot(kmed_all,which.plots=1)
+plot(kmed_all)
+
+#Cuando trabajamos con los 6 primeros componentes principales
+
+
+kmed.comp <- pam(dist.a, k=3, diss=T)
+plot(kmed.comp,which.plots=1)
+plot(kmed.comp)
+```
+
+
+En el análisis con 4 clusters. El primer cluster tiene 33 muestras, el segundo 26, el tercero 48 y el último 17 muestras. Atendiendo al análisis con 3 clusters, cada uno tiene el siguiente número de muestras: 41,27 y 56.
+
+Podemos interpretar las gráficas de la siguiente manera:
+
+  - Las observaciones en este conjunto de datos se pueden dividir en cuatro grupos distintos.
+  - Los grupos parecen estar bien definidos, con las observaciones dentro de cada grupo siendo relativamente similares.
+
+```{r}
+
+# Coordinates of individuals
+ind.coord <- as.data.frame(get_pca_ind(a.pca)$coord)
+# Add clusters obtained using the K-means algorithm
+ind.coord$cluster <- factor(kmed_all$clustering)
+# Add Species groups from the original data sett
+ind.coord$Class <- datos_reorg$Class
+
+
+# Percentage of variance explained by dimensions
+eigenvalue <- as_data_frame(round(get_eigenvalue(a.pca), 1))
+variance.percent <- eigenvalue$variance.percent
+
+
+ggscatter(
+  ind.coord, x = "Dim.1", y = "Dim.2", 
+  color = "cluster", palette = "npg", ellipse = TRUE, ellipse.type = "convex",
+  shape = "Class", size = 1.5,  legend = "right", ggtheme = theme_bw(),
+  xlab = paste0("Dim 1 (", variance.percent[1], "% )" ),
+  ylab = paste0("Dim 2 (", variance.percent[2], "% )" )
+) +
+  stat_mean(aes(color = cluster), size = 4)
+
+```
+
+
+```{r}
+
+# Coordinates of individuals
+ind.coord <- as.data.frame(get_pca_ind(a.pca)$coord)
+# Add clusters obtained using the K-means algorithm
+ind.coord$cluster <- factor(kmed.comp$clustering)
+# Add Species groups from the original data sett
+ind.coord$Class <- datos_reorg$Class
+
+
+
+# Percentage of variance explained by dimensions
+eigenvalue <- as_data_frame(round(get_eigenvalue(a.pca), 1))
+variance.percent <- eigenvalue$variance.percent
+
+
+ggscatter(
+  ind.coord, x = "Dim.1", y = "Dim.2", 
+  color = "cluster", palette = "npg", ellipse = TRUE, ellipse.type = "convex",
+  shape = "Class", size = 1.5,  legend = "right", ggtheme = theme_bw(),
+  xlab = paste0("Dim 1 (", variance.percent[1], "% )" ),
+  ylab = paste0("Dim 2 (", variance.percent[2], "% )" )
+) +
+  stat_mean(aes(color = cluster), size = 4)
+
+```
+
+
+## 5. Realiza un análisis clúster no jerárquico de los individuos. Se sugiere obtener la media, mínimo y máximo de las variables para cada conglomerado y comenta los resultados. Interpreta los resultados, y completa las siguientes cuestiones:
+
+```{r}
+# Hacemos el cluster no jerarquico con 4 clusters, atendiendo a los resultados obtenidos en el cluster jerárquico.
+
+km.a <- kmeans(a,4) 
+km.a
+# Coordinates of individuals
+ind.coord <- as.data.frame(get_pca_ind(a.pca)$coord)
+# Add clusters obtained using the K-means algorithm
+ind.coord$cluster <- factor(km.a$cluster)
+# Add Species groups from the original data sett
+ind.coord$Class <- datos_reorg$Class
+
+
+
+# Percentage of variance explained by dimensions
+eigenvalue <- as_data_frame(round(get_eigenvalue(a.pca), 1))
+variance.percent <- eigenvalue$variance.percent
+
+
+ggscatter(
+  ind.coord, x = "Dim.1", y = "Dim.2", 
+  color = "cluster", palette = "npg", ellipse = TRUE, ellipse.type = "convex",
+  shape = "Class", size = 1.5,  legend = "right", ggtheme = theme_bw(),
+  xlab = paste0("Dim 1 (", variance.percent[1], "% )" ),
+  ylab = paste0("Dim 2 (", variance.percent[2], "% )" )
+) +
+  stat_mean(aes(color = cluster), size = 4)
+
+```
+
+```{r}
+
+# Hacemos el cluster no jerarquico con 3 clusters, atendiendo a los resultados obtenidos en el cluster jerárquico.
+
+km.b <- kmeans(a,3) 
+km.b
+# Coordinates of individuals
+ind.coord <- as.data.frame(get_pca_ind(a.pca)$coord)
+# Add clusters obtained using the K-means algorithm
+ind.coord$cluster <- factor(km.b$cluster)
+# Add Species groups from the original data sett
+ind.coord$Class <- datos_reorg$Class
+
+
+
+# Percentage of variance explained by dimensions
+eigenvalue <- as_data_frame(round(get_eigenvalue(a.pca), 1))
+variance.percent <- eigenvalue$variance.percent
+
+
+ggscatter(
+  ind.coord, x = "Dim.1", y = "Dim.2", 
+  color = "cluster", palette = "npg", ellipse = TRUE, ellipse.type = "convex",
+  shape = "Class", size = 1.5,  legend = "right", ggtheme = theme_bw(),
+  xlab = paste0("Dim 1 (", variance.percent[1], "% )" ),
+  ylab = paste0("Dim 2 (", variance.percent[2], "% )" )
+) +
+  stat_mean(aes(color = cluster), size = 4)
+
+```
+
+Con 4 clusters, que es lo que hemos obtenido al hacer el análisis jerárquico con los datos en bruto en lugar de con los 6 primeros componentes principales, obtenemos la suma de cuadrados dentro del clúster por clúster más alto, con un 41,5 % frente al 36,4 % obtenido al usar 3 clusters. Además, los datos parecen estar mejor agrupados con 4 clusters que con 3. Por todo ello nos quedaremos con el análisis para 4 clusters.
+
+#### a. ¿Cuántos individuos y de qué grupo están incluidos en cada uno de los conglomerados? Compara estos resultados con los del apartado 4.c.
+
+En este análisis No jerarquico hemos obtenido 4 clusters, con: 35, 42, 24 y 23 indiviuos en cada uno. Sin embargo, en el análisis jerárquico con 4 clusters obtuvimos: 33, 26, 48 y 17.
+
+#### b. Los conglomerados de la partición obtenida ¿están bien diferenciados?
+
+Tenemos un 41.5 % de diferencia entre clusters, lo que significa que nuestra clasificación no es buena. Este porcentage es muy bajo, y para ello tenemos que estabilizar el resultado incrementando el número mínimo de iteraciones. Aquí se pueden determinar outliers para quitarse variables de encima.
+
+El siguiente análisis nos diría cuando sería buena mi clasificación, con cuantos custers y cuantas iteraciones. Comienza a iterar hasta conseguie la combinación óptima, haciendo uso de diferentes comienzos aleatorios.
+
+```{r}
+options 
+km.clust <- kmeans(a, centers=4, iter.max=500)
+km.clust
+
+# Coordinates of individuals
+ind.coord <- as.data.frame(get_pca_ind(a.pca)$coord)
+# Add clusters obtained using the K-means algorithm
+ind.coord$cluster <- factor(km.clust$cluster)
+# Add Species groups from the original data sett
+ind.coord$Class <- datos_reorg$Class
+
+
+
+# Percentage of variance explained by dimensions
+eigenvalue <- as_data_frame(round(get_eigenvalue(a.pca), 1))
+variance.percent <- eigenvalue$variance.percent
+
+
+ggscatter(
+  ind.coord, x = "Dim.1", y = "Dim.2", 
+  color = "cluster", palette = "npg", ellipse = TRUE, ellipse.type = "convex",
+  shape = "Class", size = 1.5,  legend = "right", ggtheme = theme_bw(),
+  xlab = paste0("Dim 1 (", variance.percent[1], "% )" ),
+  ylab = paste0("Dim 2 (", variance.percent[2], "% )" )
+) +
+  stat_mean(aes(color = cluster), size = 4)
+```
+
+Podemos ir cambiando el número de centros y de iteraciones hasta que obterngamos un porcentaje mayor. Lo ideal es 80 % o más, pero puede ser que se haya estabilizado, no consiguiendo mayores valores de la suma de cuadrados dentro del cluster por cluster.
